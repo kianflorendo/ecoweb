@@ -22,6 +22,10 @@ node_modules/
 dist/
 build/
 
+# SQLite database files
+*.db
+*.sqlite3
+
 # OS files
 .DS_Store
 Thumbs.db
