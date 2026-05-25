@@ -3,10 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 from models import Base
 from routers import esp32, transactions, machine, messages, users, admin
-Base.metadata.create_all(bind=engine)
 
-from seed import seed
-seed()
+try:
+    Base.metadata.create_all(bind=engine)
+    from seed import seed
+    seed()
+except Exception as e:
+    print(f"WARNING: Database not available at startup: {e}")
+    print("Backend will start but DB operations will fail until connection is restored.")
 
 app = FastAPI(title="BottleBack API", version="1.0.0")
 

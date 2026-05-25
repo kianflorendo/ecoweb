@@ -21,12 +21,18 @@ def admin_login(payload: AdminLogin):
 # ── Dashboard stats ─────────────────────────────────────────────
 @router.get("/stats")
 def admin_stats(_: str = Depends(get_current_admin), db: Session = Depends(get_db)):
-    today = date.today()
+    # Use Philippine Time (UTC+8) for "today" boundaries
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    today_ph = (now_utc + timedelta(hours=8)).date()
+    day_start = datetime(today_ph.year, today_ph.month, today_ph.day) - timedelta(hours=8)
+    day_end   = day_start + timedelta(days=1)
+
     today_bottles = db.query(func.count(Transaction.id)).filter(
-        func.date(Transaction.created_at) == today, Transaction.status == "Accepted"
+        Transaction.created_at >= day_start, Transaction.created_at < day_end,
+        Transaction.status == "Accepted"
     ).scalar() or 0
     today_rewards = db.query(func.sum(Transaction.reward_amount)).filter(
-        func.date(Transaction.created_at) == today
+        Transaction.created_at >= day_start, Transaction.created_at < day_end
     ).scalar() or 0
     total_bottles = db.query(func.count(Transaction.id)).filter(
         Transaction.status == "Accepted"
@@ -37,21 +43,22 @@ def admin_stats(_: str = Depends(get_current_admin), db: Session = Depends(get_d
     ).scalar() or 0
     machine = db.query(MachineStatus).order_by(MachineStatus.updated_at.desc()).first()
     new_msgs = db.query(func.count(ContactMessage.id)).filter(
-        func.date(ContactMessage.created_at) == today
+        ContactMessage.created_at >= day_start, ContactMessage.created_at < day_end
     ).scalar() or 0
 
-    # 7-day daily data
+    # 7-day daily data (PHT dates)
     daily = {}
     for i in range(6, -1, -1):
-        d = (datetime.now() - timedelta(days=i)).date()
+        d = (now_utc + timedelta(hours=8) - timedelta(days=i)).date()
         daily[str(d)] = 0
+    week_start = day_start - timedelta(days=6)
     rows = db.query(
-        func.date(Transaction.created_at).label("d"),
+        func.date(Transaction.created_at + timedelta(hours=8)).label("d"),
         func.count(Transaction.id).label("c"),
     ).filter(
         Transaction.status == "Accepted",
-        func.date(Transaction.created_at) >= (date.today() - timedelta(days=6)),
-    ).group_by(func.date(Transaction.created_at)).all()
+        Transaction.created_at >= week_start,
+    ).group_by(func.date(Transaction.created_at + timedelta(hours=8))).all()
     for row in rows:
         daily[str(row.d)] = row.c
 

@@ -1,21 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { useAdminAuth } from '../../hooks/useAuth'
+import { phDateTime, phDateOnly } from '../../utils/date'
 
 export default function Dashboard() {
   const { token } = useAdminAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    document.title = 'Dashboard — BottleBack Admin'
+  const fetchStats = useCallback(() => {
     if (!token) return
     fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [token])
+
+  useEffect(() => {
+    document.title = 'Dashboard — BottleBack Admin'
+    fetchStats()
+    const id = setInterval(fetchStats, 10000)
+    return () => clearInterval(id)
+  }, [fetchStats])
 
   const now = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
   const connected = !!data
@@ -126,7 +133,7 @@ export default function Dashboard() {
                 {data.recent_transactions.map(tx => (
                   <tr key={tx.id}>
                     <td className="td-mono">{tx.id}</td>
-                    <td>{new Date(tx.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Manila' })}</td>
+                    <td>{phDateTime(tx.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                     <td>{tx.bottle_count}</td>
                     <td>{tx.reward_amount}</td>
                     <td><span className="badge badge--muted">{tx.node_id}</span></td>
@@ -147,8 +154,7 @@ export default function Dashboard() {
 function BarChart({ data }) {
   const vals = Object.values(data)
   const labels = Object.keys(data).map(d => {
-    const dt = new Date(d)
-    return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
+    return phDateOnly(d, { month: 'short', day: 'numeric' })
   })
   const max = Math.max(...vals, 1)
   return (

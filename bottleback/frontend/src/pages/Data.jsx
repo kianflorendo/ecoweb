@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
+import { phDateTime } from '../utils/date'
 
 function binColor(l) {
   if (l === null || l === undefined) return 'pending'
@@ -142,7 +143,7 @@ export default function Data() {
                     {transactions.map(tx => (
                       <tr key={tx.id}>
                         <td>{tx.id}</td>
-                        <td>{new Date(tx.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Manila' })}</td>
+                        <td>{phDateTime(tx.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                         <td>{tx.bottle_count}</td>
                         <td>{tx.reward_amount}</td>
                         <td><span className={`status-badge status-badge--${tx.status.toLowerCase()}`}>{tx.status}</span></td>

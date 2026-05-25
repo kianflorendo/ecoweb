@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import Nav from '../../components/Nav'
 import Footer from '../../components/Footer'
+import { phDateTime, phDateOnly, phTimeOnly } from '../../utils/date'
 
 export default function Profile() {
   const { user, loading, logout, token } = useAuth()
@@ -42,7 +43,7 @@ export default function Profile() {
               <div className="profile-meta">
                 <span>✉️ {user.email}</span>
                 <span>📍 Brgy. {user.barangay}</span>
-                <span>📅 Joined {new Date(user.created_at).toLocaleDateString('en-PH', { month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })}</span>
+                <span>📅 Joined {phDateOnly(user.created_at, { month: 'short', year: 'numeric' })}</span>
               </div>
             </div>
           </div>
@@ -88,8 +89,8 @@ export default function Profile() {
                     ['Full Name', `${user.first_name} ${user.last_name}`],
                     ['Email', user.email],
                     ['Barangay', user.barangay],
-                    ['Joined', new Date(user.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' })],
-                    ['Last Login', user.last_login ? new Date(user.last_login).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' }) : 'First login'],
+                    ['Joined', phDateOnly(user.created_at, { year: 'numeric', month: 'long', day: 'numeric' })],
+                    ['Last Login', user.last_login ? phDateTime(user.last_login, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'First login'],
                   ].map(([k, v]) => (
                     <div className="info-row" key={k}><span className="key">{k}</span><span className="val">{v}</span></div>
                   ))}
@@ -133,7 +134,7 @@ export default function Profile() {
                           <span style={{ marginLeft: '.5rem', color: 'var(--text)' }}>{tx.bottle_count} bottle{tx.bottle_count !== 1 ? 's' : ''}</span>
                           {tx.status === 'Accepted' && <span style={{ color: 'var(--muted)', fontSize: '.82rem' }}> → 🎁 {tx.reward_amount} reward</span>}
                         </div>
-                        <span className="tx-time">{new Date(tx.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })} {new Date(tx.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}</span>
+                        <span className="tx-time">{phDateOnly(tx.created_at, { month: 'short', day: 'numeric' })} {phTimeOnly(tx.created_at, { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     ))}
                   </>

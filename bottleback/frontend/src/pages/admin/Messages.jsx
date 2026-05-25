@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useAdminAuth } from '../../hooks/useAuth'
+import { phDateTime } from '../../utils/date'
 
 export default function Messages() {
   const { token } = useAdminAuth()
@@ -54,7 +55,7 @@ export default function Messages() {
           <div className="panel-body">
             <div className="grid-2" style={{ marginBottom: '1rem' }}>
               <div><p className="form-label">From</p><p style={{ fontWeight: 600, color: 'var(--ink)' }}>{viewMsg.name}</p><p style={{ fontSize: '.85rem' }}>{viewMsg.email}</p></div>
-              <div><p className="form-label">Received</p><p style={{ fontSize: '.9rem' }}>{new Date(viewMsg.created_at).toLocaleString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}</p></div>
+              <div><p className="form-label">Received</p><p style={{ fontSize: '.9rem' }}>{phDateTime(viewMsg.created_at, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p></div>
             </div>
             <div style={{ marginBottom: '1rem' }}><p className="form-label">Subject</p><p style={{ fontWeight: 600, color: 'var(--ink)' }}>{viewMsg.subject}</p></div>
             <div><p className="form-label">Message</p><div style={{ background: 'var(--off-white)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem', fontSize: '.92rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{viewMsg.message}</div></div>
@@ -90,7 +91,7 @@ export default function Messages() {
                       <td><strong style={{ color: 'var(--ink)' }}>{m.name}</strong></td>
                       <td style={{ fontSize: '.85rem' }}>{m.email}</td>
                       <td>{m.subject.length > 40 ? m.subject.slice(0, 40) + '…' : m.subject}</td>
-                      <td style={{ fontSize: '.82rem', color: 'var(--muted)' }}>{new Date(m.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}</td>
+                      <td style={{ fontSize: '.82rem', color: 'var(--muted)' }}>{phDateTime(m.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '.4rem' }}>
                           <button onClick={() => handleView(m.id)} className="btn btn--outline btn--sm">👁 View</button>

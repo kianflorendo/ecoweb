@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useAdminAuth } from '../../hooks/useAuth'
+import { phDateTime } from '../../utils/date'
 
 function MachineCard({ m, token, onUpdate }) {
   const [binInput, setBinInput] = useState(m.bin_level)
@@ -56,7 +57,7 @@ function MachineCard({ m, token, onUpdate }) {
             <div className="progress-bar">
               <div className={`progress-fill${bc !== 'ok' ? ` progress-fill--${bc}` : ''}`} style={{ width: `${m.bin_level}%` }}></div>
             </div>
-            <p style={{ fontSize: '.8rem', margin: '.4rem 0 .8rem' }}>{binLabel(m.bin_level)} — Last updated: {new Date(m.updated_at).toLocaleString('en-PH')}</p>
+            <p style={{ fontSize: '.8rem', margin: '.4rem 0 .8rem' }}>{binLabel(m.bin_level)} — Last updated: {phDateTime(m.updated_at)}</p>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ marginBottom: '.3rem' }}>Set Bin Level (%)</label>
@@ -90,7 +91,12 @@ export default function Machine() {
       .then(setMachines)
   }
 
-  useEffect(() => { if (token) fetchMachines() }, [token])
+  useEffect(() => {
+    if (!token) return
+    fetchMachines()
+    const id = setInterval(fetchMachines, 10000)
+    return () => clearInterval(id)
+  }, [token])
 
   function handleUpdate() {
     setMsg('updated')

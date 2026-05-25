@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useAdminAuth } from '../../hooks/useAuth'
+import { phDateOnly } from '../../utils/date'
 
 export default function Users() {
   const { token } = useAdminAuth()
@@ -85,7 +86,7 @@ export default function Users() {
                       <td><span className="badge badge--muted">{u.barangay}</span></td>
                       <td style={{ fontWeight: 600, color: 'var(--green-600)' }}>{u.total_bottles.toLocaleString()}</td>
                       <td style={{ fontWeight: 600, color: 'var(--teal-500)' }}>{u.total_rewards.toLocaleString()}</td>
-                      <td style={{ fontSize: '.82rem', color: 'var(--muted)' }}>{new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td style={{ fontSize: '.82rem', color: 'var(--muted)' }}>{phDateOnly(u.created_at, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                       <td><span className={`badge badge--${u.is_active ? 'green' : 'red'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
                       <td>
                         <div style={{ display: 'flex', gap: '.4rem' }}>

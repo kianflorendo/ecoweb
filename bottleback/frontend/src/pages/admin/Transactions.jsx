@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useAdminAuth } from '../../hooks/useAuth'
+import { phDateTime } from '../../utils/date'
 
 export default function Transactions() {
   const { token } = useAdminAuth()
@@ -72,7 +73,7 @@ export default function Transactions() {
                   {data.items.map(tx => (
                     <tr key={tx.id}>
                       <td className="td-mono">{tx.id}</td>
-                      <td>{new Date(tx.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Manila' })}</td>
+                      <td>{phDateTime(tx.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                       <td>{tx.bottle_count}</td>
                       <td>{tx.reward_amount}</td>
                       <td><span className="badge badge--muted">{tx.node_id}</span></td>

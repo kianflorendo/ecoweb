@@ -1,9 +1,11 @@
 // ============================================================
 //  BottleBack — ESP32 Firmware
-//  Bottle detection : HC-SR04 ultrasonic #1 (<5 cm = bottle)
-//  Bin level        : HC-SR04 ultrasonic #2
-//  LCD              : initialized once in setup()
-//  Time             : NTP Philippine Time (UTC+8)
+//  Trigger 1 : Inductive sensor → immediate metal rejection
+//  Trigger 2 : HC-SR04 ultrasonic → bottle detection
+//  Validation : Capacitive sensor → confirm plastic
+//  Bin level  : HC-SR04 ultrasonic #2
+//  LCD        : initialized once in setup()
+//  Time       : NTP Philippine Time (UTC+8)
 // ============================================================
 
 #include <WiFi.h>
@@ -15,17 +17,21 @@
 
 const char* WIFI_SSID     = "Cream";
 const char* WIFI_PASSWORD = "hatdog123";
-const char* SERVER_URL    = "http://10.250.209.92:8000/api/receive-data";
-const char* PING_URL      = "http://10.250.209.92:8000/api/machine/ping";
+const char* SERVER_URL    = "http://10.63.128.92:8000/api/receive-data";
+const char* PING_URL      = "http://10.63.128.92:8000/api/machine/ping";
 const char* NODE_ID       = "node_001";
 
-// ── Bottle detection HC-SR04 (points at bottle slot) ─────────
+// ── Bottle detection HC-SR04 ──────────────────────────────────
 #define BOTTLE_TRIG     18
 #define BOTTLE_ECHO     19
 
-// ── Bin level HC-SR04 (mounted top of bin, points down) ──────
+// ── Bin level HC-SR04 ────────────────────────────────────────
 #define BIN_TRIG        26
 #define BIN_ECHO        27
+
+// ── Sensors via PC817 (LOW = triggered) ──────────────────────
+#define CAP_PIN         33   // Capacitive — detects plastic
+#define IND_PIN         35   // Inductive  — detects metal (PRIMARY TRIGGER)
 
 #define SERVO_PIN       13
 #define BUZZER_PIN      25
@@ -34,12 +40,13 @@ const char* NODE_ID       = "node_001";
 
 #define SERVO_CLOSED    0
 #define SERVO_OPEN      90
-#define BOTTLE_MAX_CM   15.0f   // <15 cm = bottle detected
+#define BOTTLE_MAX_CM   15.0f
 #define GATE_OPEN_MS    1500
-#define LOG_DELAY_MS    3000
-#define COOLDOWN_MS     1000
+#define LOG_DELAY_MS    2000
+#define COOLDOWN_MS     1500
 #define BIN_PING_MS     5000
 #define BIN_EMPTY_CM    120
+#define BIN_MAX_CM      140
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 Servo gateServo;
@@ -47,7 +54,7 @@ Servo gateServo;
 int           currentBinLevel = 0;
 unsigned long lastBinPing     = 0;
 
-// ── LCD: init once in setup(), clear before each write ───────
+// ── LCD ───────────────────────────────────────────────────────
 void lcdShow(const char* r0, const char* r1) {
   lcd.clear();
   delay(3);
@@ -80,6 +87,8 @@ void setup() {
   pinMode(BOTTLE_ECHO, INPUT);
   pinMode(BIN_TRIG,    OUTPUT);
   pinMode(BIN_ECHO,    INPUT);
+  pinMode(CAP_PIN,     INPUT);
+  pinMode(IND_PIN,     INPUT);
   pinMode(BUZZER_PIN,  OUTPUT);
   pinMode(LED_GREEN,   OUTPUT);
   pinMode(LED_RED,     OUTPUT);
@@ -92,7 +101,6 @@ void setup() {
   gateServo.write(SERVO_CLOSED);
   delay(300);
 
-  // LCD — initialize once only
   Wire.begin(21, 22, 100000UL);
   delay(100);
   lcd.init();
@@ -108,65 +116,111 @@ void setup() {
 
   currentBinLevel = measureBinLevel();
   lcdIdle();
-  Serial.println("Ready. Ultrasonic bottle detection (<5cm).");
+  Serial.println("Ready.");
 }
 
 // ─────────────────────────────────────────────────────────────
 void loop() {
 
-  // Debug: print bottle distance and bin level every second
+  // Debug: all sensors every second
   static unsigned long lastDebug = 0;
   if (millis() - lastDebug >= 1000) {
     lastDebug = millis();
-    float bd = measureBottleDistance();
-    Serial.printf("BOTTLE=%.1fcm(%s)  BIN=%d%%\n",
-      bd, bd < BOTTLE_MAX_CM ? "DETECTED" : "clear", currentBinLevel);
+    float bd      = measureBottleDistance();
+    float binDist = measureBinDistance();
+    currentBinLevel = binDistToLevel(binDist);
+    bool cap = readCapacitive();
+    bool ind = readInductive();
+    Serial.printf("BOTTLE=%.1fcm(%s)  CAP=%s  IND=%s  BIN=%d%%  BIN_DIST=%.1fcm\n",
+      bd,
+      bd < BOTTLE_MAX_CM ? "DETECTED" : "clear",
+      cap ? "PLASTIC" : "none",
+      ind ? "METAL"   : "none",
+      currentBinLevel, binDist);
   }
 
-  if (bottleConfirmed()) {
+  // ── PRIORITY 1: Inductive sensor → immediate metal rejection ─
+  if (metalConfirmed()) {
+    Serial.println(">> METAL DETECTED — rejecting immediately");
+    lcdShow("!! METAL !!", "Not Accepted");
+    digitalWrite(LED_RED, HIGH);
+    beep(3, 100);
+    delay(800);
 
-    // Step 1 — Detecting
+    lcdShow(">> REJECTED <<", "Metal Detected");
+    delay(2000);
+
+    digitalWrite(LED_RED, LOW);
+    sendToServer("Rejected", 1, 0);
+
+    // Wait for metal object to be removed before resuming
+    Serial.println("Waiting for object removal...");
+    while (readInductive()) delay(100);
+    Serial.println("Object removed — ready");
+
+    delay(COOLDOWN_MS);
+    lcdIdle();
+    return;
+  }
+
+  // ── PRIORITY 2: Ultrasonic → bottle slot detection ───────────
+  if (bottleConfirmed()) {
     lcdShow("Detecting...", "Please wait...");
-    Serial.println("Bottle confirmed");
+    Serial.println("Bottle confirmed — validating...");
     delay(LOG_DELAY_MS);
 
-    // Step 2 — Re-confirm bottle still present
     if (bottleConfirmed()) {
+      bool isPlastic = readCapacitive();
+      bool isMetal   = readInductive();   // final check
+      bool accepted  = isPlastic && !isMetal;
 
-      // Step 3 — Accepted
-      lcdShow(">> ACCEPTED! <<", "Opening gate...");
-      digitalWrite(LED_GREEN, HIGH);
-      beep(1, 200);
-      Serial.println(">> ACCEPTED");
+      Serial.printf("CAP=%s  IND=%s  → %s\n",
+        isPlastic ? "PLASTIC"     : "NOT PLASTIC",
+        isMetal   ? "METAL"       : "no metal",
+        accepted  ? "ACCEPT"      : "REJECT");
 
-      gateServo.write(SERVO_OPEN);
-      delay(GATE_OPEN_MS);
-      gateServo.write(SERVO_CLOSED);
+      if (accepted) {
+        // ── ACCEPT ─────────────────────────────────────────────
+        lcdShow(">> ACCEPTED! <<", "Opening gate...");
+        digitalWrite(LED_GREEN, HIGH);
+        beep(1, 200);
+        Serial.println(">> ACCEPTED");
 
-      // Step 4 — Reward dispensed
-      lcdShow("Reward", "Dispensed!  :)");
-      delay(1500);
+        gateServo.write(SERVO_OPEN);
+        delay(GATE_OPEN_MS);
+        gateServo.write(SERVO_CLOSED);
 
-      // Step 5 — Thank you
-      lcdShow("Thank You!", "Keep Recycling!");
-      beep(2, 100);
-      delay(2000);
-
-      digitalWrite(LED_GREEN, LOW);
-
-      sendToServer("Accepted", 1, 1);
-
-      currentBinLevel = measureBinLevel();
-      if (currentBinLevel >= 90) {
-        lcdShow("Bin FULL!", "Please empty");
-        beep(3, 150);
+        lcdShow("Reward", "Dispensed!  :)");
+        delay(1500);
+        lcdShow("Thank You!", "Keep Recycling!");
+        beep(2, 100);
         delay(2000);
-      }
 
-      // Wait for bottle to be removed (up to 6 s)
-      unsigned long t = millis() + 6000;
-      while (measureBottleDistance() < BOTTLE_MAX_CM && millis() < t) delay(100);
-      Serial.println("Cleared — ready");
+        digitalWrite(LED_GREEN, LOW);
+        sendToServer("Accepted", 1, 1);
+
+        currentBinLevel = measureBinLevel();
+        if (currentBinLevel >= 90) {
+          lcdShow("Bin FULL!", "Please empty");
+          beep(3, 150);
+          delay(2000);
+        }
+
+        unsigned long t = millis() + 6000;
+        while (measureBottleDistance() < BOTTLE_MAX_CM && millis() < t) delay(100);
+        Serial.println("Cleared — ready");
+
+      } else {
+        // ── REJECT (not plastic or metal slipped through) ───────
+        const char* reason = isMetal ? "Metal Detected" : "Not Plastic";
+        lcdShow(">> REJECTED <<", reason);
+        digitalWrite(LED_RED, HIGH);
+        beep(2, 150);
+        Serial.println(String(">> REJECTED: ") + reason);
+        delay(2500);
+        digitalWrite(LED_RED, LOW);
+        sendToServer("Rejected", 1, 0);
+      }
 
     } else {
       Serial.println("Removed early — cancelled");
@@ -176,7 +230,7 @@ void loop() {
     lcdIdle();
   }
 
-  // Periodic bin level ping to server
+  // ── Periodic bin ping ─────────────────────────────────────────
   if (millis() - lastBinPing >= BIN_PING_MS) {
     lastBinPing     = millis();
     currentBinLevel = measureBinLevel();
@@ -186,17 +240,30 @@ void loop() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Single HC-SR04 reading (generic)
+//  SENSOR READS
+// ─────────────────────────────────────────────────────────────
+
+bool readCapacitive() { return digitalRead(CAP_PIN) == LOW; }
+bool readInductive()  { return digitalRead(IND_PIN) == LOW; }
+
+// 3 consecutive readings must all show metal — prevents false triggers
+bool metalConfirmed() {
+  for (int i = 0; i < 3; i++) {
+    if (!readInductive()) return false;
+    delay(30);
+  }
+  return true;
+}
+
 float readUltrasonic(int trig, int echo) {
   digitalWrite(trig, LOW);  delayMicroseconds(4);
   digitalWrite(trig, HIGH); delayMicroseconds(10);
   digitalWrite(trig, LOW);
-  long d = pulseIn(echo, HIGH, 30000);   // 30 ms timeout ≈ 5 m
+  long d = pulseIn(echo, HIGH, 30000);
   if (d == 0) return 999.0f;
-  return d * 0.01715f;                   // microseconds → cm
+  return d * 0.01715f;
 }
 
-// Bottle sensor: average 3 readings
 float measureBottleDistance() {
   float sum = 0; int v = 0;
   for (int i = 0; i < 3; i++) {
@@ -207,18 +274,23 @@ float measureBottleDistance() {
   return v == 0 ? 999.0f : sum / v;
 }
 
-// Bin sensor: average 5 readings
-float measureDistance() {
-  float sum = 0; int v = 0;
-  for (int i = 0; i < 5; i++) {
+float measureBinDistance() {
+  float buf[5];
+  int n = 0;
+  for (int i = 0; i < 9 && n < 5; i++) {
     float cm = readUltrasonic(BIN_TRIG, BIN_ECHO);
-    if (cm < 400) { sum += cm; v++; }
-    delay(15);
+    if (cm > 2.0f && cm < BIN_MAX_CM) buf[n++] = cm;
+    delay(30);
   }
-  return v == 0 ? 999.0f : sum / v;
+  if (n == 0) return (float)BIN_EMPTY_CM;
+  for (int i = 1; i < n; i++) {
+    float k = buf[i]; int j = i - 1;
+    while (j >= 0 && buf[j] > k) { buf[j+1] = buf[j]; j--; }
+    buf[j+1] = k;
+  }
+  return buf[n / 2];
 }
 
-// 6 readings × 50 ms — all must be <5 cm to confirm a bottle
 bool bottleConfirmed() {
   for (int i = 0; i < 6; i++) {
     if (measureBottleDistance() >= BOTTLE_MAX_CM) return false;
@@ -227,15 +299,21 @@ bool bottleConfirmed() {
   return true;
 }
 
-int measureBinLevel() {
-  float dist = measureDistance();
+int binDistToLevel(float dist) {
   if (dist >= BIN_EMPTY_CM) return 0;
   int lv = dist > 20 ? (int)((BIN_EMPTY_CM - dist) * 0.8f)
                      : 80 + (int)(20 - dist);
   return constrain(lv, 0, 100);
 }
 
+int measureBinLevel() {
+  return binDistToLevel(measureBinDistance());
+}
+
 // ─────────────────────────────────────────────────────────────
+//  NETWORK
+// ─────────────────────────────────────────────────────────────
+
 void sendToServer(String status, int b, int r) {
   if (WiFi.status() != WL_CONNECTED) connectWiFi();
   HTTPClient http;
